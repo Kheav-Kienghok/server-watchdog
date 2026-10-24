@@ -1,0 +1,9 @@
+services:
+  telegram-ops-notifier:
+    build: .
+    image: ${NOTIFIER_IMAGE:-telegram-ops-notifier:local}
+    container_name: telegram-ops-notifier
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${NOTIFIER_PORT:-8000}:8000"
