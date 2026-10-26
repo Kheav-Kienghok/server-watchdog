@@ -14,6 +14,7 @@ class CertCheck:
     not_after: datetime | None = None
     issuer: str | None = None
     error: str | None = None
+    source: str = "local"
 
 
 def _issuer_name(cert: dict) -> str | None:
@@ -45,14 +46,22 @@ def evaluate_cert(
         error=None if ok else f"only {days_left} valid days left (need at least {min_days})",
     )
 
-
 def check_certificate(
-    domain: str, min_days: int, port: int = 443, timeout: float = 10.0
+    domain: str,
+    min_days: int,
+    port: int = 443,
+    timeout: float = 10.0,
+    connect_host: str | None = None,
 ) -> CertCheck:
-    """Connect to domain:port with full verification (chain + hostname)."""
+    """Verify the cert served for `domain` (chain + hostname).
+
+    If connect_host is set, the TCP connection goes to that host/IP (e.g. the
+    HAProxy server, bypassing the edge firewall) while SNI and hostname
+    verification still use `domain`.
+    """
     ctx = ssl.create_default_context()
     try:
-        with socket.create_connection((domain, port), timeout=timeout) as sock:
+        with socket.create_connection((connect_host or domain, port), timeout=timeout) as sock:
             with ctx.wrap_socket(sock, server_hostname=domain) as tls:
                 cert = tls.getpeercert()
     except ssl.SSLCertVerificationError as exc:

@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 
@@ -20,6 +20,20 @@ def parse_times(raw: str) -> tuple[tuple[int, int], ...]:
     return tuple(times)
 
 
+def parse_overrides(raw: str) -> dict[str, str]:
+    """Parse "a.com=10.0.0.5,b.com=10.0.0.6" into {"a.com": "10.0.0.5", ...}."""
+    out: dict[str, str] = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        domain, sep, host = part.partition("=")
+        if not sep or not domain.strip() or not host.strip():
+            raise ValueError(f"invalid CERT_CONNECT_OVERRIDES entry: {part!r}")
+        out[domain.strip().lower()] = host.strip()
+    return out
+
+
 @dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str
@@ -32,6 +46,12 @@ class Settings:
     cert_check_retries: int = 3
     cert_check_retry_delay: float = 20.0
     cert_port: int = 443
+    cert_connect_host: str = ""
+    cert_connect_overrides: dict[str, str] = field(default_factory=dict)
+    cert_check_mode: str = "local"  # local | worker | both
+    cert_worker_url: str = ""
+    cert_worker_token: str = ""
+    cert_worker_timeout: float = 30.0
 
 
 @lru_cache
@@ -40,6 +60,12 @@ def get_settings() -> Settings:
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
     if not token or not chat_id:
         raise RuntimeError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set")
+    mode = os.getenv("CERT_CHECK_MODE", "local").strip().lower()
+    if mode not in ("local", "worker", "both"):
+        raise RuntimeError("CERT_CHECK_MODE must be local, worker or both")
+    worker_url = os.getenv("CERT_WORKER_URL", "").strip()
+    if mode in ("worker", "both") and not worker_url:
+        raise RuntimeError("CERT_WORKER_URL must be set when CERT_CHECK_MODE is worker or both")
     return Settings(
         telegram_bot_token=token,
         telegram_chat_id=chat_id,
@@ -52,4 +78,10 @@ def get_settings() -> Settings:
         cert_check_retries=int(os.getenv("CERT_CHECK_RETRIES", "3")),
         cert_check_retry_delay=float(os.getenv("CERT_CHECK_RETRY_DELAY", "20")),
         cert_port=int(os.getenv("CERT_PORT", "443")),
+        cert_connect_host=os.getenv("CERT_CONNECT_HOST", "").strip(),
+        cert_connect_overrides=parse_overrides(os.getenv("CERT_CONNECT_OVERRIDES", "")),
+        cert_check_mode=mode,
+        cert_worker_url=worker_url,
+        cert_worker_token=os.getenv("CERT_WORKER_TOKEN", "").strip(),
+        cert_worker_timeout=float(os.getenv("CERT_WORKER_TIMEOUT", "30")),
     )
