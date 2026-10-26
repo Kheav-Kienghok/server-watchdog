@@ -10,6 +10,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # Parent app. Replace this with your main project's app; the two lines that
 # matter are `lifespan=` and `app.mount(...)`.
 app = FastAPI(title="telegram-ops-notifier", lifespan=hook_receiver_lifespan)

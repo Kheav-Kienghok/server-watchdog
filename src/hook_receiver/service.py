@@ -1,7 +1,7 @@
 """Business logic: process a hook, build messages, send the heartbeat."""
-
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from html import escape
 from zoneinfo import ZoneInfo
@@ -14,6 +14,12 @@ from .worker_client import check_via_worker
 
 logger = logging.getLogger("hook_receiver")
 
+CERT_CHECK_DELAY = int(os.getenv("CERT_CHECK_DELAY_SECONDS", "60"))
+
+LABELS = {"local": "Local check", "cloudflare": "Cloudflare (outside)"}
+
+KINDS = {"local": ["local"], "worker": ["worker"], "both": ["local", "worker"]}
+
 
 def _now(tz_name: str) -> str:
     return datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M:%S")
@@ -25,9 +31,6 @@ def build_failed_message(payload: HookPayload, tz: str) -> str:
         f"Domain: <code>{escape(payload.domain)}</code>\n"
         f"Time: {_now(tz)} ({tz})"
     )
-
-
-LABELS = {"local": "Local check", "cloudflare": "Cloudflare (outside)"}
 
 
 def build_success_message(payload: HookPayload, checks: list[CertCheck], settings: Settings) -> str:
@@ -67,7 +70,9 @@ async def _check_once(domain: str, settings: Settings, kind: str) -> CertCheck:
 
 
 async def verify_certificate(domain: str, settings: Settings, kind: str = "local") -> CertCheck:
-    """Check the cert, retrying a few times (web server reload / CT lag)."""
+    if kind == "worker" and CERT_CHECK_DELAY > 0:
+        logger.info("waiting %ss before worker cert check for %s", CERT_CHECK_DELAY, domain)
+        await asyncio.sleep(CERT_CHECK_DELAY)
     result: CertCheck | None = None
     for attempt in range(1, settings.cert_check_retries + 1):
         result = await _check_once(domain, settings, kind)
@@ -83,11 +88,7 @@ async def verify_certificate(domain: str, settings: Settings, kind: str = "local
     return result
 
 
-KINDS = {"local": ["local"], "worker": ["worker"], "both": ["local", "worker"]}
-
-
 async def process_hook(payload: HookPayload, settings: Settings) -> None:
-    """Runs in the background after the hook request has been accepted."""
     try:
         if payload.status == "failed":
             text = build_failed_message(payload, settings.timezone)
